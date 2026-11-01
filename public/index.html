@@ -1,0 +1,478 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MovieVault</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #10131c;
+      color: white;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: auto;
+    }
+
+    h1 {
+      color: #a78bfa;
+      text-align: center;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #b8bdca;
+      margin-bottom: 25px;
+    }
+
+    .auth-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 25px;
+    }
+
+    .auth-buttons a {
+      display: inline-block;
+      padding: 11px 20px;
+      background: #8b5cf6;
+      color: white;
+      text-decoration: none;
+      border-radius: 7px;
+      font-weight: bold;
+    }
+
+    .auth-buttons a:hover {
+      background: #7042d6;
+    }
+
+    .auth-buttons .logout {
+      background: #41485c;
+    }
+
+    .panel {
+      background: #1b2030;
+      padding: 22px;
+      border-radius: 12px;
+      margin-bottom: 25px;
+    }
+
+    input, button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      border-radius: 7px;
+      font-size: 15px;
+    }
+
+    input {
+      background: #10131c;
+      color: white;
+      border: 1px solid #41485c;
+    }
+
+    button {
+      border: none;
+      background: #8b5cf6;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #7042d6;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    #message {
+      margin-top: 15px;
+      overflow-wrap: anywhere;
+    }
+
+    .movie-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 20px;
+    }
+
+    .movie-card {
+      background: #1b2030;
+      border: 1px solid #30374a;
+      border-radius: 12px;
+      padding: 16px;
+      overflow-wrap: anywhere;
+    }
+
+    .poster {
+      width: 100%;
+      height: 250px;
+      object-fit: contain;
+      background: #0b0d13;
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+
+    .movie-card h3 {
+      color: #c4b5fd;
+      margin-bottom: 8px;
+    }
+
+    .movie-card p {
+      color: #c5cad6;
+    }
+
+    .small-message {
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+
+    .muted {
+      color: #b8bdca;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+
+    <h1>🎬 MovieVault</h1>
+    <p class="subtitle">Your personal movie collection</p>
+
+    <!-- Auth0 buttons -->
+    <div class="auth-buttons">
+      <a href="/login">Login</a>
+      <a href="/signup">Sign Up</a>
+      <a href="/profile">My Profile</a>
+      <a href="/logout" class="logout">Logout</a>
+    </div>
+
+    <!-- Add Movie -->
+    <section class="panel">
+      <h2>Add a Movie</h2>
+
+      <form id="movieForm">
+        <input
+          type="text"
+          id="title"
+          placeholder="Movie name"
+          required
+        >
+
+        <input
+          type="text"
+          id="genre"
+          placeholder="Genre (Action, Comedy...)"
+          required
+        >
+
+        <input
+          type="number"
+          id="year"
+          placeholder="Release year"
+          min="1888"
+          max="2100"
+          required
+        >
+
+        <button type="submit" id="addButton">
+          Add Movie
+        </button>
+      </form>
+
+      <p id="message" role="status"></p>
+    </section>
+
+    <!-- Movie List -->
+    <section>
+      <h2>My Movies</h2>
+
+      <button type="button" id="refreshButton">
+        Refresh Movies
+      </button>
+
+      <p id="listMessage" class="muted"></p>
+      <div id="movieList" class="movie-grid"></div>
+    </section>
+
+  </div>
+
+  <script>
+    const movieForm = document.getElementById("movieForm");
+    const addButton = document.getElementById("addButton");
+    const message = document.getElementById("message");
+    const movieList = document.getElementById("movieList");
+    const listMessage = document.getElementById("listMessage");
+    const refreshButton = document.getElementById("refreshButton");
+
+    // Read the server response
+    async function readResponse(response) {
+      const text = await response.text();
+      let data = {};
+
+      if (text.trim()) {
+        try {
+          data = JSON.parse(text);
+        } catch (error) {
+          throw new Error("Invalid server response.");
+        }
+      }
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          const goToLogin = confirm(
+            "Please log in before continuing. Open the login page?"
+          );
+
+          if (goToLogin) {
+            window.location.href = data.loginUrl || "/login";
+          }
+
+          throw new Error("Login is required for this action.");
+        }
+
+        throw new Error(
+          data.message ||
+          data.error ||
+          `Request failed (HTTP ${response.status})`
+        );
+      }
+
+      return data;
+    }
+
+    // Display a message
+    function showMessage(text, success = false) {
+      message.textContent = text;
+      message.style.color = success ? "#86efac" : "#fca5a5";
+    }
+
+    // Add a movie
+    movieForm.addEventListener("submit", async function(event) {
+      event.preventDefault();
+
+      const movie = {
+        title: document.getElementById("title").value.trim(),
+        genre: document.getElementById("genre").value.trim(),
+        year: Number(document.getElementById("year").value)
+      };
+
+      if (!movie.title || !movie.genre || !movie.year) {
+        showMessage("Please fill in all movie details.");
+        return;
+      }
+
+      addButton.disabled = true;
+      showMessage("Adding movie...");
+
+      try {
+        const response = await fetch("/movies", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(movie)
+        });
+
+        const result = await readResponse(response);
+
+        showMessage(
+          result.message || "Movie added successfully!",
+          true
+        );
+
+        movieForm.reset();
+        await loadMovies();
+
+      } catch (error) {
+        console.error("Add movie error:", error);
+        showMessage(error.message || "Unable to add movie.");
+      } finally {
+        addButton.disabled = false;
+      }
+    });
+
+    // Load movies from MongoDB
+    async function loadMovies() {
+      movieList.replaceChildren();
+      listMessage.textContent = "Loading movies...";
+
+      try {
+        const response = await fetch("/movies");
+        const result = await readResponse(response);
+
+        const movies = Array.isArray(result)
+          ? result
+          : result.movies;
+
+        if (!Array.isArray(movies)) {
+          throw new Error("Unexpected movie list format.");
+        }
+
+        listMessage.textContent = movies.length
+          ? `${movies.length} movie(s) found`
+          : "No movies yet. Add your first movie!";
+
+        movies.forEach(function(movie) {
+          movieList.appendChild(createMovieCard(movie));
+        });
+
+      } catch (error) {
+        console.error("Load movies error:", error);
+        listMessage.textContent = error.message;
+      }
+    }
+
+    // Create a movie card
+    function createMovieCard(movie) {
+      const card = document.createElement("article");
+      card.className = "movie-card";
+
+      if (movie.posterUrl) {
+        const image = document.createElement("img");
+        image.className = "poster";
+        image.alt = `${movie.title || "Movie"} poster`;
+        image.src = movie.posterUrl;
+
+        image.addEventListener("error", function() {
+          image.alt = "Poster could not be loaded";
+          image.style.display = "none";
+        });
+
+        card.appendChild(image);
+      }
+
+      const title = document.createElement("h3");
+      title.textContent = movie.title || "Untitled movie";
+      card.appendChild(title);
+
+      const genre = document.createElement("p");
+      genre.textContent = `Genre: ${movie.genre || "Not specified"}`;
+      card.appendChild(genre);
+
+      const year = document.createElement("p");
+      year.textContent = `Year: ${movie.year || "Not specified"}`;
+      card.appendChild(year);
+
+      if (movie.posterUrl) {
+        const posterStatus = document.createElement("p");
+        posterStatus.className = "small-message";
+        posterStatus.textContent = "✅ Poster uploaded";
+        card.appendChild(posterStatus);
+      } else {
+        const posterHeading = document.createElement("h4");
+        posterHeading.textContent = "Upload Movie Poster";
+        card.appendChild(posterHeading);
+
+        const uploadForm = document.createElement("form");
+
+        const fileInput = document.createElement("input");
+        fileInput.type = "file";
+        fileInput.accept = "image/jpeg,image/png,image/webp";
+        fileInput.required = true;
+
+        const uploadButton = document.createElement("button");
+        uploadButton.type = "submit";
+        uploadButton.textContent = "Upload Poster";
+
+        const uploadMessage = document.createElement("p");
+        uploadMessage.className = "small-message";
+        uploadMessage.setAttribute("role", "status");
+
+        uploadForm.appendChild(fileInput);
+        uploadForm.appendChild(uploadButton);
+        uploadForm.appendChild(uploadMessage);
+
+        uploadForm.addEventListener("submit", async function(event) {
+          event.preventDefault();
+
+          const file = fileInput.files[0];
+
+          if (!file) {
+            uploadMessage.textContent = "Please choose an image.";
+            return;
+          }
+
+          const allowedTypes = [
+            "image/jpeg",
+            "image/png",
+            "image/webp"
+          ];
+
+          if (!allowedTypes.includes(file.type)) {
+            uploadMessage.textContent =
+              "Choose a JPG, PNG, or WEBP image.";
+            return;
+          }
+
+          if (file.size > 5 * 1024 * 1024) {
+            uploadMessage.textContent =
+              "Image must be smaller than 5 MB.";
+            return;
+          }
+
+          if (!movie._id) {
+            uploadMessage.textContent =
+              "Movie ID is missing from the server response.";
+            return;
+          }
+
+          const formData = new FormData();
+          formData.append("poster", file);
+
+          uploadButton.disabled = true;
+          uploadMessage.textContent = "Uploading poster to Dropbox...";
+
+          try {
+            const response = await fetch(
+              `/movies/${encodeURIComponent(movie._id)}/poster`,
+              {
+                method: "POST",
+                body: formData
+              }
+            );
+
+            const result = await readResponse(response);
+
+            uploadMessage.textContent =
+              result.message || "Poster uploaded successfully!";
+
+            await loadMovies();
+
+          } catch (error) {
+            console.error("Poster upload error:", error);
+            uploadMessage.textContent =
+              error.message || "Poster upload failed.";
+          } finally {
+            uploadButton.disabled = false;
+          }
+        });
+
+        card.appendChild(uploadForm);
+      }
+
+      return card;
+    }
+
+    // Refresh movies
+    refreshButton.addEventListener("click", loadMovies);
+
+    // Load movies when the page opens
+    loadMovies();
+  </script>
+</body>
+</html>
